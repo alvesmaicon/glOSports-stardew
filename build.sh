@@ -238,8 +238,10 @@ build_app() {
     # where Mono's CodeDom looks for it: <prefix>/bin/mcs, with mscorlib in <prefix>/lib/mono/4.5
     cat > "$a/mono/bin/mcs" <<'MCS'
 #!/bin/sh
-# Mono's C# compiler, run by the port's own Mono
+# Mono's C# compiler, run by the port's own Mono. goodluckOS's sh is BusyBox, setuid root, so glibc has dropped
+# LD_LIBRARY_PATH here: libmono-native (file access) needs the libgssapi stub in mono/lib
 here=$(cd "$(dirname "$0")" && pwd)
+export LD_LIBRARY_PATH="$here/../lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 exec "$here/mono" $MONO_OPTIONS "$here/../lib/mono/4.5/mcs.exe" "$@"
 MCS
     chmod +x "$a/mono/bin/mcs"

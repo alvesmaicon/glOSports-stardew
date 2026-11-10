@@ -28,13 +28,14 @@ mkdir -p "$H/apps" "$H/.config/puppy"
 echo "language=$TEST_LANGUAGE" > "$H/.config/puppy/settings"
 python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$zip" "$H/apps"
 # Mono finds its lib/ and etc/ from its own path, only when it is named mono in a bin/: the real one goes to mono/q/bin,
-# with wrappers that run it under qemu-arm where the app and Mono's CodeDom (q/bin/mcs) look for it
+# run under qemu-arm by wrappers where the app looks for it; Mono's CodeDom finds q/bin/mcs, which runs the app's own
+# mcs. The wrappers are dash, not the setuid sh, so they keep LD_LIBRARY_PATH as the console's direct exec would
 mkdir -p "$a/mono/q/bin"
 mv "$a/mono/bin/mono" "$a/mono/q/bin/mono"
 ln -s ../lib "$a/mono/q/lib"
 ln -s ../etc "$a/mono/q/etc"
-printf '#!/bin/sh\nexec qemu-arm "$(dirname "$0")/../q/bin/mono" "$@"\n' > "$a/mono/bin/mono"
-printf '#!/bin/sh\nhere=$(dirname "$0")\nexec qemu-arm "$here/mono" "$here/../lib/mono/4.5/mcs.exe" "$@"\n' > "$a/mono/q/bin/mcs"
+printf '#!/bin/dash\nexec qemu-arm "$(dirname "$0")/../q/bin/mono" "$@"\n' > "$a/mono/bin/mono"
+printf '#!/bin/dash\nexec "$(dirname "$0")/../../bin/mcs" "$@"\n' > "$a/mono/q/bin/mcs"
 chmod +x "$a/mono/bin/mono" "$a/mono/bin/mcs" "$a/mono/q/bin/mono" "$a/mono/q/bin/mcs"
 if [ "${1:-folder}" = zip ] && [ -n "${2:-}" ]; then
     cp "/repo/$2" "$H/"
@@ -52,7 +53,9 @@ echo "== ${zip##*/}, the game as a ${1:-folder} in $H"
 fi
 
 start=$(date +%s)
-(cd "$a" && HOME=$H PATH=/tmp/bb:$PATH busybox sh import.sh) || echo "import.sh exit $?"
+chown -R player "$H"
+setpriv --reuid=player --regid=player --clear-groups env HOME=$H PATH=/tmp/bb:$PATH sh -c "cd '$a' && sh import.sh" ||
+    echo "import.sh exit $?"
 echo "== $(( $(date +%s) - start )) s"
 cat "$H/logs/stardew-import.log"
 ls -la "$a/data" && ls "$a/data/game" | head -40 && cat "$a/data/ready" 2>/dev/null
