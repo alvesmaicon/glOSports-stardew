@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The Stardew Valley port for HOME/ports/stardewvalley, without the game: Mono armhf (plain files: apps run
+# The Stardew Valley port for goodluckOS, without the game: Mono armhf (plain files: apps run
 # as player, which cannot mount, and HOME is FAT, which has no symlinks),
 # gl4es, OpenAL Soft, the lz4 shim, PortMaster's managed MonoGame and patches, the HelloMG test.
 #   ./build.sh          build into out/stardewvalley
@@ -7,7 +7,9 @@
 #   ./build.sh game     out/gamedata from your own game (SDV_GAME, default: Steam on macOS),
 #                       its .xnb files recompressed from LZX to LZ4 (SdvXnb.exe)
 #   ./build.sh smoke    run Mono armhf under qemu-arm (no display): assemblies and native libs load
-#   ./build.sh patches  rebuild only stardew.sh, StardewPatches.dll and the small tools (Sdv*.exe, SVLoader)
+#   ./build.sh app      the App Installer's zip, out/StardewValley-<version>.zip, from out/stardewvalley: no game in
+#                       it; the player's copy goes in on the console (app/import.sh). APP_VERSION: default git describe
+#   ./build.sh patches  rebuild only StardewPatches.dll and the small tools (Sdv*.exe, SVLoader)
 #   ./build.sh xmlgen   StardewValley.XmlSerializers*.dll (+ AOT images) in gamedata: the save's
 #                       serializers pregenerated from your game, installed by SdvLoader before the game
 #                       starts (the console builds them at run time in ~60 s and reads saves ~3x slower)
@@ -140,7 +142,6 @@ game_dirs() {
 }
 
 build_patches() {
-    cp "$HERE/stardew.sh" "$P/"
     mcs -nologo -optimize+ -out:"$P/SVLoader.exe" "$HERE/patches/SVLoader.cs"
     mcs -nologo -optimize+ -r:"$P/dlls/MonoGame.Framework.dll" -out:"$P/SdvIcon.exe" "$HERE/patches/SdvIcon.cs"
     mcs -nologo -optimize+ -r:"$P/dlls/MonoGame.Framework.dll" -out:"$P/SdvXnb.exe" "$HERE/patches/SdvXnb.cs"
@@ -215,6 +216,61 @@ build_xmlgen() {
     done
 }
 
+# The app's folder: the runtime of out/stardewvalley, Mono's C# compiler (the console builds StardewPatches.dll and the
+# save serializers against the player's game), liblz4 with LZ4 HC for SdvXnb, the patches' sources and app/
+build_app() {
+    local a=/repo/out/app/StardewValley d=$W/debs-mcs r=$BLD/mcs-root v bad zip
+    [ -x "$P/mono/bin/mono" ] || { echo "no out/stardewvalley: ./build.sh first"; exit 1; }
+    mkdir -p "$BLD" "$d"
+    rm -rf "${a%/*}"
+    mkdir -p "$a/lib" "$a/dlls" "$a/src" "$a/licenses"
+    cp -r "$P/mono" "$P/gl4es" "$a/"
+    cp "$P"/lib/*.so* "$a/lib/"
+    cp "$P"/dlls/* "$a/dlls/"
+    rm -f "$a/dlls/StardewPatches.dll"
+    cp "$P"/SdvLoader.exe "$P"/SdvXmlGen.exe "$P"/SdvXnb.exe "$P"/SdvIcon.exe "$a/"
+    cp "$HERE"/patches/StardewPatches.cs "$HERE"/patches/SpeedPatches.cs "$a/src/"
+    cp "$HERE"/app/* "$a/"
+
+    ls "$d"/mono-mcs_*.deb >/dev/null 2>&1 || { apt-get update -qq; (cd "$d" && apt-get download -qq mono-mcs=$MONO 2>&1 | grep -v unsandboxed || true); }
+    rm -rf "$r"; dpkg-deb -x "$(ls "$d"/mono-mcs_*.deb | head -n 1)" "$r"
+    cp "$r/usr/lib/mono/4.5/mcs.exe" "$a/mono/lib/mono/4.5/"
+    # where Mono's CodeDom looks for it: <prefix>/bin/mcs, with mscorlib in <prefix>/lib/mono/4.5
+    cat > "$a/mono/bin/mcs" <<'MCS'
+#!/bin/sh
+# Mono's C# compiler, run by the port's own Mono
+here=$(cd "$(dirname "$0")" && pwd)
+exec "$here/mono" $MONO_OPTIONS "$here/../lib/mono/4.5/mcs.exe" "$@"
+MCS
+    chmod +x "$a/mono/bin/mcs"
+
+    tarball lz4 https://github.com/lz4/lz4/archive/refs/tags/v$LZ4.tar.gz $LZ4_SHA
+    arm-linux-gnueabihf-gcc $ARMFLAGS -shared -fPIC -Wl,-soname,liblz4.so.1 -I"$SRC/lz4/lib" "$SRC/lz4/lib/lz4.c" \
+        "$SRC/lz4/lib/lz4hc.c" -o "$a/lib/liblz4.so.1"
+
+    cp "$P"/LICENSE*.txt "$HERE"/licenses/*.txt "$a/licenses/"
+    cp "$HERE/LICENSE" "$a/licenses/LICENSE.port.txt"
+    cp "$SRC/openal-soft/COPYING" "$a/licenses/LICENSE.OpenAL-Soft.txt"
+    printf 'lib/libopenal.so.1 is OpenAL Soft %s, unmodified; its source:\nhttps://github.com/kcat/openal-soft/archive/refs/tags/%s.tar.gz\n' $OPENAL $OPENAL \
+        > "$a/licenses/OpenAL-Soft-source.txt"
+
+    v=${APP_VERSION:-$(git -c safe.directory='*' -C /repo describe --tags --always --dirty)}
+    sed -i "s/@VERSION@/$v/" "$a/app.puppy"
+
+    # what the card (FAT) can't hold: links, names it refuses, names that differ only in case
+    bad=$(cd "${a%/*}" && { find StardewValley -type l; find StardewValley -name '*[\\:*?"<>|]*'; find StardewValley | tr A-Z a-z | sort | uniq -d; })
+    [ -z "$bad" ] || { echo "not for a FAT card:"; echo "$bad"; exit 1; }
+    zip=/repo/out/StardewValley-$v.zip
+    rm -f "$zip"
+    (cd "${a%/*}" && python3 -c 'import os, sys, zipfile
+with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+    for root, dirs, files in os.walk("StardewValley"):
+        dirs.sort()
+        for f in sorted(files): z.write(os.path.join(root, f))' "$zip")
+    echo "== out/${zip##*/}: $(find "$a" -type f | wc -l) files, $(du -sm "$a" | cut -f1) MB unpacked," \
+        "$(($(stat -c %s "$zip") / 1048576)) MB zipped"
+}
+
 fetch_portmaster() {
     local f
     for f in $PM_FILES; do
@@ -238,8 +294,6 @@ build() {
     mcs -nologo -out:"$P/test/HelloMG.exe" -r:System.Core -r:"$P/dlls/MonoGame.Framework.dll" "$HERE/test/HelloMG.cs"
     arm-linux-gnueabihf-gcc $ARMFLAGS -I"$SRC/openal-soft/include" "$HERE/native/altone.c" -o "$(dirname "$P")/altone" \
         -L"$P/lib" -l:libopenal.so.1 -lm
-    cp "$HERE/stardew.sh" "$P/"
-    cp "$HERE/apps.puppy-entry" "$(dirname "$P")/"
     echo "== native libraries (armhf, newest glibc symbol)"
     for f in "$P"/lib/*.so* "$P"/gl4es/*; do
         printf '%-22s %s\n' "$(basename "$f")" \
@@ -274,5 +328,6 @@ case ${1:-build} in
     patches) build_patches ;;
     aot) mkdir -p "$BLD"; build_aot ;;
     xmlgen) mkdir -p "$BLD"; build_xmlgen ;;
-    *) echo "usage: ./build.sh [build|game|smoke|patches|aot|xmlgen]"; exit 1 ;;
+    app) build_app ;;
+    *) echo "usage: ./build.sh [build|app|game|smoke|patches|aot|xmlgen]"; exit 1 ;;
 esac
