@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One row per bench log (console-*.log from bench.sh auto, or mac-*.log from macbench.sh): fps, update and draw ms,
 GL flushes, lighting, screen buffer, startup times, memory and temperature.
-  benchtable.py dev/out/stardew/results/console-w1-*.log
+  benchtable.py out/results/console-w1-*.log
 """
 import re
 import sys

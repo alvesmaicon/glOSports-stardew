@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reads the main thread's folded stacks from dev/stardew/macbench.sh perf (root;...;leaf count, 1 sample = 1 ms).
+"""Reads the main thread's folded stacks from tools/macbench.sh perf (root;...;leaf count, 1 sample = 1 ms).
   folded.py <file> [--root REGEX] [--depth N] [--min PCT] [--ticks N]
 The tree below the first frame that matches --root (default Game1:_update), children by inclusive samples, then
 the hottest leaf functions under it. --ticks (updates in the window, default 3600 = 60 s at 60 UPS) turns samples

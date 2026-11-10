@@ -1,4 +1,4 @@
-// goodluckOS: CPU cuts for the A33 found by the F2 bench (dev/out/stardew/results). Each one does the same work with
+// goodluckOS: CPU cuts for the A33 found by the F2 bench (tools/, out/results). Each one does the same work with
 // the same results, only less of it. SDV_SLOW=<name>,... (or all) leaves some out for A/B runs:
 //   objects    farm debris (weeds, stones, twigs) whose update would do nothing are skipped
 //   polls      net events of every location are only polled when something arrived

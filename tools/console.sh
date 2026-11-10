@@ -2,27 +2,29 @@
 # Stardew Valley on a console over its USB data port: put this checkout's port files on it, and time the title and a
 # save load there with the bench mode (the game loads the save by itself, logs its times and exits). Each command
 # first checks that the console holds the card named (HOME/.card-name) with no app open.
-#   dev/stardew/console.sh saves <card>                      the save folders on the card
-#   dev/stardew/console.sh send <card> [content]             StardewPatches.dll and the pregenerated serializers
+#   tools/console.sh saves <card>                      the save folders on the card
+#   tools/console.sh send <card> [content]             StardewPatches.dll and the pregenerated serializers
 #                                                            (content: also the LZ4 .xnb files) over MTP, over the
 #                                                            port's files (no backup: build.sh makes them again)
-#   dev/stardew/console.sh bench <card> <name> <save> [VAR=value...]
+#   tools/console.sh bench <card> <name> <save> [VAR=value...]
 #                                                            one run with SDV_BENCH=<save>,1,1 and the variables in
 #                                                            <port>/env (the old env comes back after it), its log in
-#                                                            dev/out/stardew/results/console-<name>.log (~2 min)
-# The daily card (extreme-daily) also needs --daily-card.
+#                                                            out/results/console-<name>.log (~2 min)
+# The daily card (extreme-daily) also needs --daily-card. The serial link is goodluckOS's dev/glserial.py
+# (GOODLUCKOS: its checkout, ../goodluckOS by default).
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-REPO=$(dirname "$(dirname "$HERE")")
-OUT=$REPO/dev/out/stardew
+REPO=$(dirname "$HERE")
+OUT=$REPO/out
+GLSERIAL=${GOODLUCKOS:-$(dirname "$REPO")/goodluckOS}/dev/glserial.py
 H=/home/player
 PORT=$H/ports/stardewvalley
 LOG=$H/logs/stardew.log
 
 usage() { sed -n 's/^#   //p' "$0"; exit 1; }
 die() { echo "$*"; exit 1; }
-g() { python3 "$REPO/dev/glserial.py" cmd "$@" | tr -d '\r'; }
+g() { python3 "$GLSERIAL" cmd "$@" | tr -d '\r'; }
 
 DAILY=
 args=()
@@ -78,7 +80,7 @@ bench() {
         out=$(g "grep -E '^(bench|exit)' $LOG | tail -n 3")
         case $out in *"exit "*) break ;; esac
     done
-    python3 "$REPO/dev/glserial.py" get $LOG "$log" > /dev/null
+    python3 "$GLSERIAL" get $LOG "$log" > /dev/null
     grep -E '^(bench|Early|speed|xmldump|exit)|Exception' "$log" | sed 's/^/  /'
 }
 

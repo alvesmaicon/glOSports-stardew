@@ -1,7 +1,7 @@
 // F0 check of the runtime: Mono + MonoGame + SDL/KMSDRM + gl4es + OpenAL + gamepad, without the game.
 // D-pad/stick moves the square, START or BACK quits, FPS and memory go to stdout every 5 s.
 // HELLO_BEEP=1 beeps after 1 s and on A: the port's MonoGame crashes when it stops a memory-resident
-// sound (null streaming buffers in PlatformStop), so it is off by default; dev/stardew/altone tests OpenAL.
+// sound (null streaming buffers in PlatformStop), so it is off by default; out/altone (native/altone.c) tests OpenAL.
 using System;
 using System.IO;
 using System.Linq;

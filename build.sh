@@ -2,40 +2,39 @@
 # The Stardew Valley port for HOME/ports/stardewvalley, without the game: Mono armhf (plain files: apps run
 # as player, which cannot mount, and HOME is FAT, which has no symlinks),
 # gl4es, OpenAL Soft, the lz4 shim, PortMaster's managed MonoGame and patches, the HelloMG test.
-#   dev/stardew/build.sh          build into dev/out/stardew/stardewvalley
-#   (dev/out/stardew/altone: a 1 s OpenAL tone, for the console's /tmp)
-#   dev/stardew/build.sh game     dev/out/stardew/gamedata from your own game (SDV_GAME, default: Steam on macOS),
-#                                 its .xnb files recompressed from LZX to LZ4 (SdvXnb.exe)
-#   dev/stardew/build.sh smoke    run Mono armhf under qemu-arm (no display): assemblies and native libs load
-#   dev/stardew/build.sh patches  rebuild only stardew.sh, StardewPatches.dll and the small tools (Sdv*.exe, SVLoader)
-#   dev/stardew/build.sh xmlgen   StardewValley.XmlSerializers*.dll (+ AOT images) in gamedata: the save's
-#                                 serializers pregenerated from your game, installed by SdvLoader before the game
-#                                 starts (the console builds them at run time in ~60 s and reads saves ~3x slower)
-#   dev/stardew/build.sh aot      AOT-compile (Mono armhf under qemu-arm) the class libraries, the port's DLLs and
-#                                 the game's assemblies in gamedata: <assembly>.so next to each one. Not used: on
-#                                 the A33 it saved no startup time and cost 13% FPS (2026-10-15). With
-#                                 AOT_PROFILE=<file> (macbench.sh's --profile=aot recording, inside the container's
-#                                 /repo) the generic instances the game used are compiled in too
+#   ./build.sh          build into out/stardewvalley
+#                       (out/altone: a 1 s OpenAL tone, for the console's /tmp)
+#   ./build.sh game     out/gamedata from your own game (SDV_GAME, default: Steam on macOS),
+#                       its .xnb files recompressed from LZX to LZ4 (SdvXnb.exe)
+#   ./build.sh smoke    run Mono armhf under qemu-arm (no display): assemblies and native libs load
+#   ./build.sh patches  rebuild only stardew.sh, StardewPatches.dll and the small tools (Sdv*.exe, SVLoader)
+#   ./build.sh xmlgen   StardewValley.XmlSerializers*.dll (+ AOT images) in gamedata: the save's
+#                       serializers pregenerated from your game, installed by SdvLoader before the game
+#                       starts (the console builds them at run time in ~60 s and reads saves ~3x slower)
+#   ./build.sh aot      AOT-compile (Mono armhf under qemu-arm) the class libraries, the port's DLLs and
+#                       the game's assemblies in gamedata: <assembly>.so next to each one. Not used: on
+#                       the A33 it saved no startup time and cost 13% FPS (2026-10-15). With
+#                       AOT_PROFILE=<file> (macbench.sh's --profile=aot recording, inside the container's
+#                       /repo) the generic instances the game used are compiled in too
 # StardewPatches.dll is compiled against your StardewValley.exe and icon.png made from its title logo, when
 # SDV_GAME exists.
-# Runs in the goodluck-stardew image (dev/stardew/Dockerfile, on top of goodluck-dev).
+# Runs in the glosports-stardew image (Dockerfile); downloads and build trees stay in the stardew-work volume.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-REPO=$(dirname "$(dirname "$HERE")")
-IMAGE=goodluck-stardew
+IMAGE=glosports-stardew
 SDV_GAME=${SDV_GAME:-$HOME/Library/Application Support/Steam/steamapps/common/Stardew Valley}
 
 if [ ! -f /.dockerenv ]; then
     docker image inspect $IMAGE >/dev/null 2>&1 || docker build -t $IMAGE "$HERE"
     game=(); [ -d "$SDV_GAME" ] && game=(-v "$SDV_GAME:/game:ro")
-    exec docker run --rm -i -e AOT_PROFILE="${AOT_PROFILE:-}" -v "$REPO:/repo" -v goodluck-work:/work "${game[@]}" $IMAGE /repo/dev/stardew/build.sh "$@"
+    exec docker run --rm -i -e AOT_PROFILE="${AOT_PROFILE:-}" -v "$HERE:/repo" -v stardew-work:/work "${game[@]}" $IMAGE /repo/build.sh "$@"
 fi
 
 W=/work/stardew
 SRC=$W/src
 BLD=$W/build
-P=/repo/dev/out/stardew/stardewvalley
+P=/repo/out/stardewvalley
 ARMFLAGS="-O2 -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard"
 
 PM=https://raw.githubusercontent.com/PortsMaster/PortMaster-New/49b642ae4a3699bfa3626933ed70e7b34efd14e2/ports/stardewvalley/stardewvalley
@@ -107,7 +106,7 @@ build_openal() {
 
 build_lz4() {
     tarball lz4 https://github.com/lz4/lz4/archive/refs/tags/v$LZ4.tar.gz $LZ4_SHA
-    arm-linux-gnueabihf-gcc $ARMFLAGS -shared -fPIC -I"$SRC/lz4/lib" "$HERE/lz4shim.c" "$SRC/lz4/lib/lz4.c" \
+    arm-linux-gnueabihf-gcc $ARMFLAGS -shared -fPIC -I"$SRC/lz4/lib" "$HERE/native/lz4shim.c" "$SRC/lz4/lib/lz4.c" \
         -o "$P/lib/liblwjgl_lz4.so"
 }
 
@@ -128,7 +127,7 @@ build_mono() {
     cp -a "$r/usr/lib/mono" "$m/lib/"
     cp -a "$r/etc/mono" "$m/etc/"
     arm-linux-gnueabihf-gcc $ARMFLAGS -shared -fPIC -Wl,-soname,libgssapi_krb5.so.2 \
-        -Wl,--version-script=<(echo 'gssapi_krb5_2_MIT { global: *; };') "$HERE/gssstub.c" -o "$m/lib/libgssapi_krb5.so.2"
+        -Wl,--version-script=<(echo 'gssapi_krb5_2_MIT { global: *; };') "$HERE/native/gssstub.c" -o "$m/lib/libgssapi_krb5.so.2"
     cp -rL "$m" "$P/mono"
 }
 
@@ -155,12 +154,12 @@ build_patches() {
         -r:MonoGame.Framework.dll -r:0Harmony.dll -r:System.Xml -out:"$P/dlls/StardewPatches.dll" "$HERE/patches/StardewPatches.cs" \
         "$HERE/patches/SpeedPatches.cs"
     MONO_PATH=$P/dlls mono "$P/SdvIcon.exe" "$CONTENT/Minigames/TitleButtons.xnb" "$P/icon.png"
-    echo "StardewPatches.dll built against $(strings "$BIN/StardewValley.exe" | grep -m1 -oE '^1\.[0-9]+\.[0-9]+' || echo '?')"
+    echo "StardewPatches.dll built against $(strings "$BIN/StardewValley.exe" | grep -oE '^1\.[0-9]+\.[0-9]+' | sed -n 1p)"
 }
 
 # The game minus what Mono armhf and the port provide (the macOS build bundles its own Mono and natives)
 build_game() {
-    local g=/repo/dev/out/stardew/gamedata f
+    local g=/repo/out/gamedata f
     game_dirs || { echo "no StardewValley.exe under SDV_GAME"; exit 1; }
     rm -rf "$g"
     mkdir -p "$g"
@@ -185,7 +184,7 @@ AOT_PORT="0Harmony MonoGame.Framework Lidgren.Network StardewPatches"
 AOT_GAME="StardewValley.exe StardewValley.GameData.dll xTile.dll BmFont.dll GalaxyCSharp.dll SkiaSharp.dll
     System.Data.HashFunction.Core.dll System.Data.HashFunction.Interfaces.dll System.Data.HashFunction.xxHash.dll"
 build_aot() {
-    local m=$P/mono g=/repo/dev/out/stardew/gamedata n f files=()
+    local m=$P/mono g=/repo/out/gamedata n f files=()
     for n in $AOT_BCL; do
         if [ $n = mscorlib ]; then files+=("$m/lib/mono/4.5/mscorlib.dll"); else files+=("$m"/lib/mono/gac/$n/*/$n.dll); fi
     done
@@ -205,7 +204,7 @@ build_aot() {
 
 # The serializer DLL is IL; its AOT image is fine here (one-off code, where AOT's slower steady state does not count)
 build_xmlgen() {
-    local m=$P/mono g=/repo/dev/out/stardew/gamedata f
+    local m=$P/mono g=/repo/out/gamedata f
     export LD_LIBRARY_PATH=$P/lib:$m/lib MONO_PATH=$P/dlls:$P:$g HOME=/tmp
     rm -f "$g"/StardewValley.XmlSerializers*
     (cd "$g" && qemu-arm "$m/bin/mono" "$P/SdvXmlGen.exe" "$g")
@@ -236,8 +235,8 @@ build() {
     echo "== lz4 shim $LZ4";     build_lz4
     echo "== StardewPatches, SVLoader"; build_patches
     echo "== HelloMG"
-    mcs -nologo -out:"$P/test/HelloMG.exe" -r:System.Core -r:"$P/dlls/MonoGame.Framework.dll" "$HERE/HelloMG.cs"
-    arm-linux-gnueabihf-gcc $ARMFLAGS -I"$SRC/openal-soft/include" "$HERE/altone.c" -o "$(dirname "$P")/altone" \
+    mcs -nologo -out:"$P/test/HelloMG.exe" -r:System.Core -r:"$P/dlls/MonoGame.Framework.dll" "$HERE/test/HelloMG.cs"
+    arm-linux-gnueabihf-gcc $ARMFLAGS -I"$SRC/openal-soft/include" "$HERE/native/altone.c" -o "$(dirname "$P")/altone" \
         -L"$P/lib" -l:libopenal.so.1 -lm
     cp "$HERE/stardew.sh" "$P/"
     cp "$HERE/apps.puppy-entry" "$(dirname "$P")/"
@@ -275,5 +274,5 @@ case ${1:-build} in
     patches) build_patches ;;
     aot) mkdir -p "$BLD"; build_aot ;;
     xmlgen) mkdir -p "$BLD"; build_xmlgen ;;
-    *) echo "usage: dev/stardew/build.sh [build|game|smoke|patches|aot|xmlgen]"; exit 1 ;;
+    *) echo "usage: ./build.sh [build|game|smoke|patches|aot|xmlgen]"; exit 1 ;;
 esac

@@ -1,39 +1,43 @@
 #!/usr/bin/env bash
 # F2 bench on the Mac: the console's game files, patches and bench save, run natively on arm64 in the
-# goodluck-stardew container (Debian's Mono 6.12 arm64 with the port's class libraries, Mesa llvmpipe on Xvfb at
+# glosports-stardew-bench container (Debian's Mono 6.12 arm64 with the port's class libraries, Mesa llvmpipe on Xvfb at
 # 640x480, OpenAL Soft's null output). Update times track the console's CPU; draw times do not (llvmpipe).
-#   dev/stardew/macbench.sh setup                       arm64 Mono, OpenAL and lz4 shim into the work volume
-#   dev/stardew/macbench.sh run <name> [VAR=x...]       SDV_BENCH run, log in dev/out/stardew/results/mac-<name>.log
+#   tools/macbench.sh setup                       arm64 Mono, OpenAL and lz4 shim into the work volume
+#   tools/macbench.sh run <name> [VAR=x...]       SDV_BENCH run, log in out/results/mac-<name>.log
 #                                                       (through SdvLoader.exe; BENCH_LOADER=StardewValley.exe skips it)
-#   dev/stardew/macbench.sh aot                         copy of the runtime, port and game assemblies in the
+#   tools/macbench.sh aot                         copy of the runtime, port and game assemblies in the
 #                                                       work volume (virtiofs page faults are slow), AOT-compiled; then
 #                                                       BENCH_TREE=aot macbench.sh run|perf ... runs from it
 #                                                       (AOT_PROFILE=<file>: also the generic instances
 #                                                       recorded by a run with MONO_ENV_OPTIONS=--profile=aot:...)
-#   dev/stardew/macbench.sh perf <name> [VAR=x...]      the same with Linux perf on the main thread during the
+#   tools/macbench.sh perf <name> [VAR=x...]      the same with Linux perf on the main thread during the
 #                                                       measured window: results/mac-<name>.perf.txt (self, inclusive)
-# Needs dev/stardew/build.sh and build.sh game first. Nothing else should run on the Mac during a bench.
+# Needs ./build.sh and build.sh game first. Nothing else should run on the Mac during a bench.
 # A screenshot every 20 s goes to results/mac-<name>.png; a run that hangs gets a thread dump (SIGQUIT) at
 # BENCH_TIMEOUT seconds (default 420).
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-REPO=$(dirname "$(dirname "$HERE")")
+REPO=$(dirname "$HERE")
 
 if [ ! -f /.dockerenv ]; then
+    docker image inspect glosports-stardew-bench >/dev/null 2>&1 || {
+        docker image inspect glosports-stardew >/dev/null 2>&1 || docker build -t glosports-stardew "$REPO"
+        docker build -t glosports-stardew-bench -f "$HERE/bench.Dockerfile" "$HERE"
+    }
     others=$(docker ps -q | wc -l | tr -d ' ')
     caps=(); [ "${1:-}" = perf ] && caps=(--cap-add PERFMON --cap-add SYS_PTRACE)
     exec docker run --rm -i ${caps[@]+"${caps[@]}"} -e PERF_WINDOW="${PERF_WINDOW:-}" -e BENCH_TREE="${BENCH_TREE:-}" -e AOT_PROFILE="${AOT_PROFILE:-}" -e BENCH_REV="$(git -C "$REPO" describe --always --dirty)" -e BENCH_OTHERS="$others" \
-        -v "$REPO:/repo" -v goodluck-work:/work goodluck-stardew /repo/dev/stardew/macbench.sh "$@"
+        -v "$REPO:/repo" -v stardew-work:/work glosports-stardew-bench /repo/tools/macbench.sh "$@"
 fi
 
 W=/work/stardew
 M=$W/mac
-P=/repo/dev/out/stardew/stardewvalley
-G=/repo/dev/out/stardew/gamedata
-R=/repo/dev/out/stardew/results
+P=/repo/out/stardewvalley
+G=/repo/out/gamedata
+R=/repo/out/results
 SLOT=ALVESFARM_451629148
-SNAP=/repo/dev/out/stardew/saves/alvesfarm-day2.tgz
+SNAP=/repo/out/saves/alvesfarm-day2.tgz
 MONO=6.12.0.199+dfsg-6
 AOT=$W/mac-aot
 if [ "${BENCH_TREE:-}" = aot ]; then
@@ -57,7 +61,7 @@ setup() {
     cp -a "$r"/usr/lib/libmono-native.so* "$r/usr/lib/libMonoPosixHelper.so" "$r"/usr/lib/libmono-profiler-aot.so* \
         "$M/mono/lib/"
     gcc -O2 -shared -fPIC -Wl,-soname,libgssapi_krb5.so.2 \
-        -Wl,--version-script=<(echo 'gssapi_krb5_2_MIT { global: *; };') "$HERE/gssstub.c" -o "$M/mono/lib/libgssapi_krb5.so.2"
+        -Wl,--version-script=<(echo 'gssapi_krb5_2_MIT { global: *; };') "$REPO/native/gssstub.c" -o "$M/mono/lib/libgssapi_krb5.so.2"
     cmake -S "$W/src/openal-soft" -B "$W/build/openal-arm64" -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF -DALSOFT_TESTS=OFF -DALSOFT_BACKEND_ALSA=OFF \
         -DALSOFT_BACKEND_PIPEWIRE=OFF -DALSOFT_BACKEND_PULSEAUDIO=OFF -DALSOFT_BACKEND_JACK=OFF \
@@ -65,7 +69,7 @@ setup() {
         -DALSOFT_BACKEND_SDL2=OFF -DALSOFT_BACKEND_SDL3=OFF > "$W/build/openal-arm64.cmake.log"
     ninja -C "$W/build/openal-arm64" > "$W/build/openal-arm64.log"
     cp -L "$W/build/openal-arm64/libopenal.so.1" "$M/lib/"
-    gcc -O2 -shared -fPIC -I"$W/src/lz4/lib" "$HERE/lz4shim.c" "$W/src/lz4/lib/lz4.c" -o "$M/lib/liblwjgl_lz4.so"
+    gcc -O2 -shared -fPIC -I"$W/src/lz4/lib" "$REPO/native/lz4shim.c" "$W/src/lz4/lib/lz4.c" -o "$M/lib/liblwjgl_lz4.so"
     "$M/mono/bin/mono" --version | head -1
 }
 
@@ -113,7 +117,7 @@ run() {
 }
 
 # Mono's own sampling profiler puts every sample in sem_post on arm64; perf reads its JIT map (--jitmap). The main
-# thread's stacks are saved folded (root;...;leaf count) for dev/stardew/folded.py
+# thread's stacks are saved folded (root;...;leaf count) for tools/folded.py
 perf_run() {
     local out=$R/mac-$1
     PERF=$out MONO_ENV_OPTIONS=--jitmap run "$@"

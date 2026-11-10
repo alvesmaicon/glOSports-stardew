@@ -1,5 +1,5 @@
 // Johnny on Flame's StardewPatches (BSD, LICENSE.Patch.txt; JohnnyonFlame/MonoGame v3.6_streamed_audio 4aea06d2),
-// built by dev/stardew/build.sh against the player's own game. goodluckOS additions are at the end.
+// built by build.sh against the player's own game. goodluckOS additions are at the end.
 
 using System;
 using System.Reflection;
