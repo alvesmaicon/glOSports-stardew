@@ -8,4 +8,8 @@ RUN dpkg --add-architecture armhf && apt-get update && apt-get install -y --no-i
     libasound2-dev:armhf libdrm-dev:armhf libegl-dev:armhf libgles-dev:armhf libgbm-dev:armhf \
     && rm -rf /var/lib/apt/lists/*
 
+# sdvsetup, the first start's screen: goodluckOS has SDL2 and SDL2_ttf
+RUN apt-get update && apt-get install -y --no-install-recommends libsdl2-dev:armhf libsdl2-ttf-dev:armhf \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /repo

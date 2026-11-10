@@ -1,10 +1,20 @@
 #!/bin/sh
 # Stardew Valley ("compatibility" branch) on Mono + PortMaster's MonoGame + gl4es, from the player's own game in
-# data/game (import.sh puts it there). The App Installer's app runs it in its folder. Log: HOME/logs/stardew.log.
+# data/game. Until it is there, import.sh takes it from HOME first, on sdvsetup's screen. The App Installer's app runs
+# it in its folder. Log: HOME/logs/stardew.log.
 # Overrides (LIBGL_*, MONO_*, SDV_*...) go in data/env, one VAR=value per line.
 . ./common.sh
 log=$HOME/logs/stardew.log
 mkdir -p "$HOME/logs"
+
+{
+    date
+    # the first start brings in the player's game, on the system's SDL and GL
+    if [ ! -f "$data/ready" ]; then
+        SDV_UI=1 sh import.sh | "$app/sdvsetup" "$app/fonts/PixelifySans.ttf"
+        [ -f "$data/ready" ] || exit 1
+    fi
+} > "$log" 2>&1 || exit 1
 
 export MONOGAME_PATCH=$data/StardewPatches.dll
 export SDL_VIDEO_GL_DRIVER=$app/gl4es/libGL.so.1
@@ -29,10 +39,6 @@ language() {
 
 {
     date
-    if [ ! -f "$data/ready" ]; then
-        echo "no game yet: Add your Stardew Valley (import.sh) puts it in $game"
-        exit 1
-    fi
     grep -E "MemTotal|MemAvailable|SwapFree|Shmem:" /proc/meminfo
     language
     # an update of the app brings the patches' sources, not the DLL: built here against the game, once
@@ -42,4 +48,4 @@ language() {
     cmp -s "$app/SdvLoader.exe" "$game/SdvLoader.exe" || cp "$app/SdvLoader.exe" "$game/"
     cd "$game" && mono SdvLoader.exe
     echo "exit $?"
-} > "$log" 2>&1
+} >> "$log" 2>&1

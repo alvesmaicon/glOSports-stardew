@@ -217,7 +217,8 @@ build_xmlgen() {
 }
 
 # The app's folder: the runtime of out/stardewvalley, Mono's C# compiler (the console builds StardewPatches.dll and the
-# save serializers against the player's game), liblz4 with LZ4 HC for SdvXnb, the patches' sources and app/
+# save serializers against the player's game), liblz4 with LZ4 HC for SdvXnb, the patches' sources, app/ and the
+# first start's screen (native/sdvsetup.c)
 build_app() {
     local a=/repo/out/app/StardewValley d=$W/debs-mcs r=$BLD/mcs-root v bad zip
     [ -x "$P/mono/bin/mono" ] || { echo "no out/stardewvalley: ./build.sh first"; exit 1; }
@@ -230,7 +231,11 @@ build_app() {
     rm -f "$a/dlls/StardewPatches.dll"
     cp "$P"/SdvLoader.exe "$P"/SdvXmlGen.exe "$P"/SdvXnb.exe "$P"/SdvIcon.exe "$a/"
     cp "$HERE"/patches/StardewPatches.cs "$HERE"/patches/SpeedPatches.cs "$a/src/"
-    cp "$HERE"/app/* "$a/"
+    cp -r "$HERE"/app/. "$a/"
+    # the first start's screen, on the system's SDL2 and SDL2_ttf
+    arm-linux-gnueabihf-gcc $ARMFLAGS -Wall -D_REENTRANT -I/usr/include/SDL2 "$HERE/native/sdvsetup.c" -o "$a/sdvsetup" \
+        -lSDL2 -lSDL2_ttf
+    arm-linux-gnueabihf-strip "$a/sdvsetup"
 
     ls "$d"/mono-mcs_*.deb >/dev/null 2>&1 || { apt-get update -qq; (cd "$d" && apt-get download -qq mono-mcs=$MONO 2>&1 | grep -v unsandboxed || true); }
     rm -rf "$r"; dpkg-deb -x "$(ls "$d"/mono-mcs_*.deb | head -n 1)" "$r"
