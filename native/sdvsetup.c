@@ -1,7 +1,9 @@
 // The screen of Stardew Valley's first start, while import.sh gets the player's game ready (SDV_UI=1): it draws the
 // lines import.sh writes, each led by its kind: T the title, U the line under it, S a step (the step before it is
-// done), I a note, E an error, D the end, W a prompt that waits for a button. It ends with its input, after the
-// prompt's button when there is one. Without a screen it copies its input to stdout, so the import never stops.
+// done), I a note, E an error, D the end, W a prompt that waits for a button; G the seconds each step after it takes,
+// P "<done> <total>" of the step running, R the time left's two formats ("about %d min|under a minute"), for the
+// progress bar. It ends with its input, after the prompt's button when there is one. Without a screen it copies its
+// input to stdout, so the import never stops.
 //   SDV_UI=1 sh import.sh | sdvsetup <font.ttf>       exits 1 after an error; SDVSETUP_SHOT=<bmp> saves the last frame
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -28,7 +30,7 @@ static int reader(void *arg)
         buf[strcspn(buf, "\r\n")] = 0;
         printf("%s\n", buf);
         fflush(stdout);
-        if (!buf[0] || buf[1] != ' ' || !strchr("TUSIEDW", buf[0]))
+        if (!buf[0] || buf[1] != ' ' || !strchr("TUSIEDWGPR", buf[0]))
             continue;
         SDL_LockMutex(lock);
         if (nlines == MAXL) {
@@ -106,13 +108,79 @@ static int height(Line *l)
     return l->h;
 }
 
+// the share of the work done (0-1) and the seconds left, from the last G line's estimates: steps done count whole,
+// the running one by its P lines, or by its time against its estimate (95% at most); -1 without a G line
+static float progress(int *left)
+{
+    int g = -1;
+    for (int i = 0; i < nlines; i++)
+        if (lines[i].kind == 'G')
+            g = i;
+    if (g < 0)
+        return -1;
+    float est[16], total = 0, done = 0, rest = 0;
+    int n = 0, k = 0;
+    for (char *p = lines[g].text, *e; n < 16; p = e) {
+        float v = strtof(p, &e);
+        if (e == p)
+            break;
+        est[n++] = v > 1 ? v : 1;
+        total += v > 1 ? v : 1;
+    }
+    for (int i = g + 1; i < nlines && k < n; i++) {
+        if (lines[i].kind == 'D')
+            done = total, rest = 0, k = n;
+        if (lines[i].kind != 'S')
+            continue;
+        Uint32 end;
+        char how = step_end(i, &end);
+        if (how) {
+            done += est[k++];
+            continue;
+        }
+        float f = -1;
+        for (int j = i + 1; j < nlines; j++) {
+            unsigned a, b;
+            if (lines[j].kind == 'P' && sscanf(lines[j].text, "%u %u", &a, &b) == 2 && b)
+                f = (float)a / b;
+        }
+        if (f < 0) {
+            f = (end - lines[i].at) / 1000.0f / est[k];
+            if (f > 0.95f)
+                f = 0.95f;
+        }
+        if (f > 1)
+            f = 1;
+        done += est[k] * f;
+        rest += est[k] * (1 - f);
+        while (++k < n)
+            rest += est[k];
+    }
+    while (k < n)
+        rest += est[k++];
+    *left = (int)rest;
+    return total > 0 ? done / total : 0;
+}
+
+// the running step's own P share, or -1
+static int step_percent(int i)
+{
+    int pct = -1;
+    for (int j = i + 1; j < nlines && !strchr("SED", lines[j].kind); j++) {
+        unsigned a, b;
+        if (lines[j].kind == 'P' && sscanf(lines[j].text, "%u %u", &a, &b) == 2 && b)
+            pct = a >= b ? 100 : (int)(100.0 * a / b);
+    }
+    return pct;
+}
+
 static void draw(SDL_Texture *sky, int waiting)
 {
     static const SDL_Color white = {255, 255, 255, 255}, soft = {214, 226, 240, 255}, green = {150, 236, 128, 255},
                            red = {255, 150, 140, 255}, gold = {255, 222, 120, 255};
     static const char *spin[] = {".", "..", "...", ""};
-    char buf[32];
-    int y = 28, panel = 132;
+    char buf[256];
+    int y = 28, panel = 132, left = 0, failed = 0;
     SDL_RenderCopy(ren, sky, NULL, NULL);
     for (int i = 0; i < nlines; i++) {
         if (lines[i].kind == 'T')
@@ -121,6 +189,43 @@ static void draw(SDL_Texture *sky, int waiting)
             y += text(mid, lines[i].text, -1, y, gold, 0);
     }
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_BLEND);
+    float share = progress(&left);
+    if (share >= 0) {
+        const char *about = "about %d min left", *under = "under a minute left";
+        static char fmt[2][160];
+        for (int i = 0; i < nlines; i++) {
+            char *bar;
+            failed |= lines[i].kind == 'E';
+            if (lines[i].kind != 'R' || !(bar = strchr(lines[i].text, '|')))
+                continue;
+            // the format may hold one %d and no other conversion
+            char *pc = strchr(lines[i].text, '%'), *more = pc ? strchr(pc + 1, '%') : NULL;
+            if (!pc || pc > bar || pc[1] != 'd' || (more && more < bar))
+                continue;
+            snprintf(fmt[0], sizeof fmt[0], "%.*s", (int)(bar - lines[i].text), lines[i].text);
+            snprintf(fmt[1], sizeof fmt[1], "%s", bar + 1);
+            about = fmt[0];
+            under = fmt[1];
+        }
+        SDL_Rect back = {44, y + 8, W - 88, 14}, fill = back;
+        fill.w = (int)(back.w * share);
+        SDL_SetRenderDrawColor(ren, 16, 28, 52, 170);
+        SDL_RenderFillRect(ren, &back);
+        SDL_SetRenderDrawColor(ren, failed ? 220 : share >= 1 ? 120 : 255, failed ? 96 : share >= 1 ? 210 : 214,
+                               failed ? 88 : share >= 1 ? 100 : 96, 255);
+        SDL_RenderFillRect(ren, &fill);
+        int n = snprintf(buf, sizeof buf, "%d%%", (int)(share * 100 + 0.5f));
+        if (!failed && share < 1) {
+            snprintf(buf + n, sizeof buf - n, "  ·  ");
+            n = strlen(buf);
+            if (left >= 60)
+                snprintf(buf + n, sizeof buf - n, about, (left + 59) / 60);
+            else
+                snprintf(buf + n, sizeof buf - n, "%s", under);
+        }
+        text(small, buf, -1, y + 26, soft, 0);
+        panel = y + 66;
+    }
     SDL_SetRenderDrawColor(ren, 16, 28, 52, 150);
     SDL_Rect box = {28, panel - 12, W - 56, H - panel - 36};
     SDL_RenderFillRect(ren, &box);
@@ -142,10 +247,14 @@ static void draw(SDL_Texture *sky, int waiting)
             Uint32 end;
             char how = step_end(i, &end);
             Uint32 s = (end - l->at) / 1000;
+            int pct = how ? -1 : step_percent(i);
             text(mid, how == 'E' ? "X" : how ? "OK" : spin[(SDL_GetTicks() / 500) % 4], 44, y,
                  how == 'E' ? red : how ? green : gold, 0);
             int h = text(mid, l->text, 100, y, white, 430);
-            snprintf(buf, sizeof buf, "%u:%02u", s / 60, s % 60);
+            if (pct >= 0)
+                snprintf(buf, sizeof buf, "%d%%", pct);
+            else
+                snprintf(buf, sizeof buf, "%u:%02u", s / 60, s % 60);
             text(small, buf, 548, y + 4, soft, 0);
             y += h + 8;
         } else if (l->kind == 'I') {

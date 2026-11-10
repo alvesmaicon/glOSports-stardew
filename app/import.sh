@@ -12,6 +12,8 @@ ui=${SDV_UI:-}
 [ -z "$ui" ] || trap '' PIPE
 work=$data/import
 TESTED=1.6.15
+# the seconds the steps after the copy take on the A33 (2026-11-10): patches, icon, images, serializers
+PLAN="10 1 470 260"
 mkdir -p "$HOME/logs"
 
 # the Portuguese is here, not in goodluckOS's pt-BR.lang, so that the app brings its messages' translation
@@ -45,7 +47,15 @@ What is left in %s isn't needed any more and can be deleted = O que sobrou em %s
 Open Stardew Valley again to go on from here = Abra o Stardew Valley de novo para continuar daqui
 Press any button to go back = Aperte qualquer botão para voltar
 Back to the menu in %s s = Voltando ao menu em %s s
+About %d min left = Cerca de %d min restantes
+Less than a minute left = Menos de 1 min restante
 LANG
+}
+
+# the text for a key, translated, as it is (for sdvsetup's own formats)
+text() {
+    _t=$(translate "$1")
+    printf '%s' "${_t:-$1}"
 }
 
 # the console's font has no accents; one letter at a time, as BusyBox's sed reads a [...] of them byte by byte
@@ -97,6 +107,30 @@ fail() {
 run() {
     echo "$(date '+%F %T') \$ $*" >> "$LOG"
     "$@" >> "$LOG" 2>&1
+}
+
+# a step whose output tells its progress: "P <done> <total>" lines go to the screen, the rest to the log; with a total
+# as $1 instead of -, each file unzip writes is one done. Returns the step's own status
+prun() {
+    _total=$1
+    shift
+    echo "$(date '+%F %T') \$ $*" >> "$LOG"
+    { "$@" 2>&1; echo "rc=$?"; } | {
+        _n=0
+        while IFS= read -r _l; do
+            case $_l in
+                rc=*) echo "${_l#rc=}" > "$data/.rc" ;;
+                "P "*) [ -z "$ui" ] || printf '%s\n' "$_l" ;;
+                *inflating:*|*extracting:*)
+                    _n=$((_n + 1))
+                    [ "$_total" = - ] || [ $((_n % 40)) != 0 ] || [ -z "$ui" ] || printf 'P %s %s\n' "$_n" "$_total" ;;
+                *) printf '%s\n' "$_l" >> "$LOG" ;;
+            esac
+        done
+    }
+    _rc=$(cat "$data/.rc" 2>/dev/null)
+    rm -f "$data/.rc"
+    return "${_rc:-1}"
 }
 
 free_mb() {
@@ -153,12 +187,14 @@ echo "$(date '+%F %T') import, app $(sed -n 's/^VERSION=//p' app.puppy | head -n
 if [ -n "$ui" ]; then
     printf 'T Stardew Valley\n'
     emit U "Getting your game ready"
+    printf 'R %s|%s\n' "$(text "About %d min left")" "$(text "Less than a minute left")"
 else
     printf '\n  Stardew Valley\n\n'
 fi
 zip=
 if [ -f "$work/.copied" ]; then
     say "Going on with the copy from last time"
+    [ -z "$ui" ] || echo "G $PLAN"
 else
     step "Looking for your Stardew Valley in HOME"
     exe=$(find "$HOME" -maxdepth 6 \( -path "$HOME/.*" -o -path "$HOME/apps" \) -prune -o -type f -name StardewValley.exe -print |
@@ -187,10 +223,19 @@ else
     have=$(free_mb)
     [ "$have" -ge "$need" ] || fail "Not enough room in HOME: %s MB free, %s MB needed" "$have" "$need"
 
+    # the seconds each step takes on the A33, for the screen's progress (unpacking: ~0.2 s a MB)
+    if [ -n "$zip" ]; then
+        plan="$(($(unzip -l "$zip" | tail -n 1 | awk '{ print int($1 / 1048576) }') / 5 + 5))"
+    else
+        plan=3
+    fi
+    [ -z "$ui" ] || echo "G $plan $PLAN"
+
     if [ -n "$zip" ]; then
         step "Unpacking the zip"
+        files=$(unzip -l "$zip" | grep -v __MACOSX | grep -c -E 'StardewValley\.exe$|\.dll$|\.dll\.config$|Content/.')
         rm -rf "$data/unzip" && mkdir -p "$data/unzip" &&
-            run unzip -q -o "$zip" '*StardewValley.exe' '*.dll' '*.dll.config' 'Content/*' '*/Content/*' -x '__MACOSX/*' \
+            prun "$files" unzip -o "$zip" '*StardewValley.exe' '*.dll' '*.dll.config' 'Content/*' '*/Content/*' -x '__MACOSX/*' \
                 -d "$data/unzip" ||
             { rm -rf "$data/unzip"; fail "The zip could not be unpacked: is it whole?"; }
         exe=$(find "$data/unzip" -type f -name StardewValley.exe | sed -n 1p)
@@ -216,7 +261,7 @@ if [ -f "$xnb" ]; then
 fi
 
 step "Repacking the images for a faster start"
-run mono "$app/SdvXnb.exe" "$work/Content" || fail "Repacking failed: see HOME/logs/stardew-import.log"
+prun - mono "$app/SdvXnb.exe" "$work/Content" || fail "Repacking failed: see HOME/logs/stardew-import.log"
 
 # Mono's CodeDom writes the serializers' C# to TMPDIR: the card, not /tmp, which is RAM. On 512 MB SdvXmlGen and mcs
 # don't fit at the same time, so it only writes it (SDV_MCS_DEFER) and each compile runs after it, on its own. The
