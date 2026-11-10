@@ -10,10 +10,10 @@ Status: work in progress, tested on one GA36-MB (A33) only.
 
 ## Installing
 
-It needs a goodluckOS with the App Installer (System Settings > System > App Installer).
+It needs a goodluckOS with the App Installer (System Settings > System > App Installer), and about 1.2 GB free on HOME for the first start (750 MB once it is done).
 
 1. **The port.** Download `StardewValley-<version>.zip` from [Releases](https://github.com/alvesmaicon/glOSports-stardew/releases), copy it to the `apps` folder of the console's HOME (over USB, where the console shows up as a drive, or with the card in a card reader) and install it in the App Installer. Stardew Valley shows up in the Games tab.
-2. **Your game.** In Steam, open Stardew Valley's Properties > Betas and pick `compatibility`; once it has downloaded, Manage > Browse local files shows its folder. Copy that folder to the root of HOME, as it is or as a zip of it (one zip goes over USB much faster than thousands of files). It has to be the macOS or the Linux version: the Windows one isn't supported yet.
+2. **Your game.** In Steam, open Stardew Valley's Properties > Betas and pick `compatibility`; once it has downloaded, Manage > Browse local files shows its folder. Copy that folder to the root of HOME, as it is or as a zip of it (one zip goes over USB much faster than thousands of files). It has to be the macOS or the Linux version: the Windows one isn't supported yet. Tested with the macOS one; the Linux one holds the same files.
 3. **On the console,** open Stardew Valley. The first time, a screen shows it getting your game ready: it finds the copy, moves it into the app (a zip is unpacked, then deleted), builds the port's patches against your game, repacks its images so that it starts faster and makes the readers of its saves ahead of time. This takes a while, once; then the game starts, and from then on it starts right away, with your game's title logo as its icon. If something stops it (no copy in HOME, a full card), the screen says what, and opening Stardew Valley again goes on from there.
 
 The game follows the launcher's language. Saves stay in `HOME/.config/StardewValley`, outside the app. A newer zip updates the port the same way, and your game stays; uninstalling the app removes the game's copy but not the saves. Logs: `HOME/logs/stardew.log` and `HOME/logs/stardew-import.log`.
@@ -29,6 +29,8 @@ tools/apptest.sh    # the zip's import of a game (SDV_GAME) in a HOME of its own
 ```
 
 `./build.sh game` and `./build.sh xmlgen` make the game's files on the PC instead, for the benchmarks in `tools/`.
+
+GitHub Actions (`.github/workflows/app.yml`) builds the zip on every push to `main`; a tag like `v0.1.0` publishes it as that release, with `RELEASE.md` as its notes.
 
 ## Layout
 

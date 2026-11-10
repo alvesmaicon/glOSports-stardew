@@ -1,0 +1,52 @@
+name: App
+
+# The App Installer's zip (./build.sh app), with nothing of the game in it: on every push to main as an artifact, and
+# for a tag like v0.1.0 as that tag's release, with RELEASE.md as its notes.
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # the runtime (Mono, gl4es, OpenAL Soft, MonoGame, the port's tools), then the app; a tag names the version
+      - name: Build the app
+        run: |
+          v=$(git describe --tags --always)
+          case $GITHUB_REF in refs/tags/v*) v=${GITHUB_REF_NAME#v} ;; esac
+          export APP_VERSION=$v
+          ./build.sh
+          ./build.sh app
+          ls -la out/StardewValley-*.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: stardew-valley-app
+          path: out/StardewValley-*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/StardewValley-*.zip --repo "$GITHUB_REPOSITORY" \
+            --title "Stardew Valley ${GITHUB_REF_NAME#v} for goodluckOS" --notes-file RELEASE.md

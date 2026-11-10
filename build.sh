@@ -30,7 +30,7 @@ SDV_GAME=${SDV_GAME:-$HOME/Library/Application Support/Steam/steamapps/common/St
 if [ ! -f /.dockerenv ]; then
     docker image inspect $IMAGE >/dev/null 2>&1 || docker build -t $IMAGE "$HERE"
     game=(); [ -d "$SDV_GAME" ] && game=(-v "$SDV_GAME:/game:ro")
-    exec docker run --rm -i -e AOT_PROFILE="${AOT_PROFILE:-}" -v "$HERE:/repo" -v stardew-work:/work "${game[@]}" $IMAGE /repo/build.sh "$@"
+    exec docker run --rm -i -e AOT_PROFILE="${AOT_PROFILE:-}" -e APP_VERSION="${APP_VERSION:-}" -v "$HERE:/repo" -v stardew-work:/work "${game[@]}" $IMAGE /repo/build.sh "$@"
 fi
 
 W=/work/stardew
