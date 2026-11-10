@@ -1,7 +1,7 @@
 // The game's .xnb files are LZX-compressed, and MonoGame decodes LZX in managed code a bit at a time: on the A33 that
 // was a good part of the title screen and of every save load. This rewrites each one as LZ4 (HC), which the port's
 // MonoGame reads too and decodes several times faster, at about four times the size. Each file is decoded back with
-// MonoGame's own LZ4 decoder and compared before it replaces the LZX one.
+// MonoGame's own LZ4 decoder and compared before it replaces the LZX one. "P <done> <total>" lines tell its progress.
 //   mono SdvXnb.exe <Content dir>      needs liblz4.so.1 and MonoGame.Framework.dll (MONO_PATH)
 using System;
 using System.IO;
@@ -19,8 +19,12 @@ public static class SdvXnb
 		Type lzx = mg.GetType("Microsoft.Xna.Framework.Utilities.LzxDecoderStream", true);
 		Type lz4 = mg.GetType("Microsoft.Xna.Framework.Utilities.Lz4DecoderStream", true);
 		long before = 0, after = 0;
-		int n = 0;
-		foreach (string path in Directory.GetFiles(args[0], "*.xnb", SearchOption.AllDirectories)) {
+		int n = 0, seen = 0;
+		string[] files = Directory.GetFiles(args[0], "*.xnb", SearchOption.AllDirectories);
+		int every = Math.Max(1, files.Length / 100);
+		foreach (string path in files) {
+			if (++seen % every == 0)
+				Console.WriteLine("P {0} {1}", seen, files.Length);
 			byte[] xnb = File.ReadAllBytes(path);
 			before += xnb.Length;
 			if (xnb.Length < 14 || xnb[0] != 'X' || xnb[1] != 'N' || xnb[2] != 'B' || (xnb[5] & 0x80) == 0) {

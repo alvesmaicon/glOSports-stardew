@@ -37,7 +37,7 @@ Making the icon from the title logo = Fazendo o ícone a partir do logo da tela 
 Repacking the images for a faster start = Recompactando as imagens para abrir mais rápido
 Repacking failed: see HOME/logs/stardew-import.log = A recompactação falhou: veja HOME/logs/stardew-import.log
 Making the readers of your saves = Gerando os leitores dos seus saves
-The save serializers failed: see HOME/logs/stardew-import.log = Os leitores de save falharam: veja HOME/logs/stardew-import.log
+The readers of your saves could not be made: the game opens more slowly = Não deu para gerar os leitores dos saves: o jogo abre mais devagar
 Stardew Valley is ready: open it in the Games tab = O Stardew Valley está pronto: abra na aba Jogos
 Ready: starting the game = Pronto: abrindo o jogo
 The zip was removed: the game is in the app now = O zip foi apagado: o jogo agora está dentro do app
@@ -129,6 +129,21 @@ take() {
     mv -f "$_bin/StardewValley.exe" "$work/" && : > "$work/.copied"
 }
 
+# the compiles SdvXmlGen left in $1 (one argument a line, a blank line after each), one mcs at a time
+compile_deferred() {
+    _f=$1
+    set --
+    while IFS= read -r _a; do
+        if [ -n "$_a" ]; then
+            set -- "$@" "$_a"
+        elif [ $# -gt 0 ]; then
+            mcs "$@" || return 1
+            set --
+        fi
+    done < "$_f"
+    [ -s "$_f" ]
+}
+
 # the first string that starts like 1.6.15 (it is 1.6.15.24356 in the exe)
 version() {
     strings "$1" | sed -n 's/^\(1\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | sed -n 1p
@@ -203,12 +218,18 @@ fi
 step "Repacking the images for a faster start"
 run mono "$app/SdvXnb.exe" "$work/Content" || fail "Repacking failed: see HOME/logs/stardew-import.log"
 
-# Mono's CodeDom writes the serializers' C# to TMPDIR: the card, not /tmp, which is RAM
+# Mono's CodeDom writes the serializers' C# to TMPDIR: the card, not /tmp, which is RAM. On 512 MB SdvXmlGen and mcs
+# don't fit at the same time, so it only writes it (SDV_MCS_DEFER) and each compile runs after it, on its own. The
+# game also runs without them, more slowly
 step "Making the readers of your saves"
-mkdir -p "$data/tmp"
-(cd "$work" && export TMPDIR="$data/tmp" MONO_PATH="$MONO_PATH:$work" && run mono "$app/SdvXmlGen.exe" "$work") &&
-    ls "$work"/StardewValley.XmlSerializers.dll > /dev/null 2>&1 ||
-    { rm -rf "$data/tmp"; fail "The save serializers failed: see HOME/logs/stardew-import.log"; }
+rm -rf "$data/tmp" && mkdir -p "$data/tmp"
+rm -f "$work"/StardewValley.XmlSerializers*
+if ! (cd "$work" && export TMPDIR="$data/tmp" MONO_PATH="$MONO_PATH:$work" SDV_MCS_DEFER="$data/tmp/compiles" &&
+        run mono "$app/SdvXmlGen.exe" "$work") || ! run compile_deferred "$data/tmp/compiles" ||
+        [ ! -f "$work/StardewValley.XmlSerializers.dll" ]; then
+    rm -f "$work"/StardewValley.XmlSerializers*
+    say "The readers of your saves could not be made: the game opens more slowly"
+fi
 rm -rf "$data/tmp"
 
 rm -rf "$game" && rm -f "$work/.copied" && mv "$work" "$game" || fail "Could not move the game: is HOME full?"

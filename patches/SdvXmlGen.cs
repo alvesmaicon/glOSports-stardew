@@ -1,11 +1,13 @@
 // The save's XmlSerializers as a DLL, made from the player's own game. Without a C# compiler the console builds
 // them at run time with Reflection.Emit: SaveGame's five took ~60 s to build and a save ~54 s to read (mostly JIT
 // of the emitted code). This takes the mappings SaveGame's static constructor builds and has Mono write and
-// compile C# serializers for them (needs mcs, so it runs on the PC). Also the serializers SaveSerializer builds one
+// compile C# serializers for them (with mcs: the port's, on the console). Also the serializers SaveSerializer builds one
 // type at a time (key and value types of every SerializableDictionary, Options, StartupPreferences), listed in
 // StardewValley.XmlSerializers.txt for StardewPatches.Early to put in SaveSerializer's cache. A generated assembly only
 // takes the types of one assembly: those of others (Vector2, bool[]...) go in StardewValley.XmlSerializers.<assembly>.dll.
 //   mono SdvXmlGen.exe <out dir>      from the game folder; writes <out dir>/StardewValley.XmlSerializers*.dll and .txt
+// With SDV_MCS_DEFER=<file> (the port's mcs script then only writes its command line there) the C# stays in TMPDIR and
+// nothing is compiled: on 512 MB, this process and mcs don't fit at the same time, so import.sh compiles it afterwards.
 using System;
 using System.CodeDom.Compiler;
 using System.Collections.Generic;
@@ -69,6 +71,16 @@ public static class SdvXmlGen
 		CompilerParameters p = new CompilerParameters();
 		p.OutputAssembly = Path.GetFullPath(Path.Combine(dir, name + ".dll"));
 		p.GenerateInMemory = false;
+		if (Environment.GetEnvironmentVariable("SDV_MCS_DEFER") != null) {
+			p.TempFiles = new TempFileCollection(Path.GetTempPath(), true);
+			try {
+				XmlSerializer.GenerateSerializer(types.ToArray(), mappings.ToArray(), p);
+			} catch (Exception) {
+				// the deferred compile left no assembly, as it should
+			}
+			Console.WriteLine("deferred: {0}", p.OutputAssembly);
+			return 0;
+		}
 		Assembly a = XmlSerializer.GenerateSerializer(types.ToArray(), mappings.ToArray(), p);
 		Console.WriteLine(a == null ? "nothing generated" : p.OutputAssembly);
 		return a == null ? 1 : 0;

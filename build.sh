@@ -245,6 +245,12 @@ build_app() {
 #!/bin/sh
 # Mono's C# compiler, run by the port's own Mono. goodluckOS's sh is BusyBox, setuid root, so glibc has dropped
 # LD_LIBRARY_PATH here: libmono-native (file access) needs the libgssapi stub in mono/lib
+# SDV_MCS_DEFER=<file>: the command line goes to that file, one argument a line and a blank line after, and nothing is
+# compiled (SdvXmlGen)
+if [ -n "$SDV_MCS_DEFER" ]; then
+    { for a; do printf '%s\n' "$a"; done; echo; } >> "$SDV_MCS_DEFER"
+    exit 0
+fi
 here=$(cd "$(dirname "$0")" && pwd)
 export LD_LIBRARY_PATH="$here/../lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 exec "$here/mono" $MONO_OPTIONS "$here/../lib/mono/4.5/mcs.exe" "$@"
