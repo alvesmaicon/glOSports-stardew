@@ -33,8 +33,14 @@ static int reader(void *arg)
         if (!buf[0] || buf[1] != ' ' || !strchr("TUSIEDWGPR", buf[0]))
             continue;
         SDL_LockMutex(lock);
+        // a step's progress replaces its last one; when full, the oldest step line goes, never T, U, R or G
+        if (buf[0] == 'P' && nlines && lines[nlines - 1].kind == 'P')
+            nlines--;
         if (nlines == MAXL) {
-            memmove(lines, lines + 1, sizeof(Line) * (MAXL - 1));
+            int old = 0;
+            while (old < nlines - 1 && strchr("TURG", lines[old].kind))
+                old++;
+            memmove(lines + old, lines + old + 1, sizeof(Line) * (nlines - old - 1));
             nlines--;
         }
         lines[nlines].kind = buf[0];
